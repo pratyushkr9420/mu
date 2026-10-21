@@ -4,8 +4,6 @@ Mu is a TypeScript CLI coding agent. You point it at a directory and give it a t
 
 > **Reference implementation.** Mu is designed as a production-oriented reference for developers building their own coding agents. The architecture prioritises the patterns that matter at scale: a clean sandbox abstraction that swaps execution backends without touching tool logic, a discriminated-union approval system that is safe by default and auditable by design, explicit context management to keep long sessions from degrading, and a composable tool registry with wrapping hooks for observability. Use Mu as a starting point or as a blueprint — every design decision here is something you will eventually face in a real agent harness.
 
----
-
 ## Table of Contents
 
 - [Requirements](#requirements)
@@ -13,11 +11,11 @@ Mu is a TypeScript CLI coding agent. You point it at a directory and give it a t
 - [Usage](#usage)
 - [Architecture Overview](#architecture-overview)
 - [Entry Point — `index.ts`](#entry-point--indexts)
-- [Sandbox Abstraction — `srcsandboxts`](#sandbox-abstraction--srcsandboxts)
+- [Sandbox Abstraction — `src/sandbox.ts`](#sandbox-abstraction--srcsandboxts)
   - [Local Sandbox](#local-sandbox--srcsandbox-localts)
   - [Just-Bash Sandbox](#just-bash-sandbox--srcsandbox-just-bashts)
   - [Sandbox Lifecycle](#sandbox-lifecycle)
-- [Tools — `srctoolsts`](#tools--srctoolsts)
+- [Tools — `src/tools.ts`](#tools--srctoolsts)
   - [read](#read)
   - [grep](#grep)
   - [bash](#bash)
@@ -25,25 +23,21 @@ Mu is a TypeScript CLI coding agent. You point it at a directory and give it a t
   - [todo](#todo)
   - [loadSkill](#loadskill)
   - [task — subagent delegation](#task--subagent-delegation)
-- [Approval Gates — `srcapprovalts`](#approval-gates--srcapprovalts)
-- [Tool Registry — `srcregistryts`](#tool-registry--srcregistryts)
-- [System Prompt — `srcsystemts`](#system-prompt--srcsystemts)
-- [Context Management — `srccachets`](#context-management--srccachets)
-- [Verification Gates — `srcverificationts`](#verification-gates--srcverificationts)
-- [Skills — `srcskillsts`](#skills--srcskillsts)
+- [Approval Gates — `src/approval.ts`](#approval-gates--srcapprovalts)
+- [Tool Registry — `src/registry.ts`](#tool-registry--srcregistryts)
+- [System Prompt — `src/system.ts`](#system-prompt--srcsystemts)
+- [Context Management — `src/cache.ts`](#context-management--srccachets)
+- [Verification Gates — `src/verification.ts`](#verification-gates--srcverificationts)
+- [Skills — `src/skills.ts`](#skills--srcskillsts)
 - [Project Structure](#project-structure)
 - [Running Tests](#running-tests)
 - [Design Decisions](#design-decisions)
-
----
 
 ## Requirements
 
 - [Bun](https://bun.sh/) 1.x — used for running, testing, and type-checking
 - An [OpenAI API key](https://platform.openai.com/api_keys) with available credits
 - Node.js 20.18.1+ — required only for `--sandbox=just-bash` (Bun hands that mode off to Node automatically)
-
----
 
 ## Setup
 
@@ -52,8 +46,6 @@ bun install
 cp -n .env.example .env
 # Add OPENAI_API_KEY=<your key> to .env — never commit this file
 ```
-
----
 
 ## Usage
 
@@ -83,8 +75,6 @@ You can pipe agent output cleanly: `bun run start . "summarise the API" > summar
 
 **AGENTS.md convention:** if the target directory contains an `AGENTS.md` file, its contents are injected into the system prompt as project-specific instructions. Use this to give the agent standing rules about a codebase — preferred patterns, forbidden operations, test commands, etc.
 
----
-
 ## Architecture Overview
 
 ```
@@ -109,8 +99,6 @@ index.ts                     ← CLI entry point; wires everything together
 ```
 
 The agent loop is provided by `ToolLoopAgent` from the `ai` package (AI SDK v6). Mu's job is to configure and compose the pieces around it.
-
----
 
 ## Entry Point — `index.ts`
 
@@ -145,8 +133,6 @@ Calls `sandboxFromFlag` to produce either a `local` or `just-bash` `Sandbox`.
 
 **10. Streams output**
 `agent.stream({ prompt })` returns a `fullStream` async iterator. `text-delta` chunks go to `stdout`; `tool-call` and `tool-result` chunks go to `stderr`.
-
----
 
 ## Sandbox Abstraction — `src/sandbox.ts`
 
@@ -213,8 +199,6 @@ const lifecycle: SandboxLifecycle = {
 ```
 
 In `index.ts`, `beforeStop` is called inside `try/finally` around the entire agent run — it fires even if the agent throws.
-
----
 
 ## Tools — `src/tools.ts`
 
@@ -304,8 +288,6 @@ task({ description: "Find all files that import from src/auth.ts", subagentType:
 task({ description: "Run the test suite and report failures", subagentType: "executor" })
 ```
 
----
-
 ## Approval Gates — `src/approval.ts`
 
 The approval system decides whether a `bash` command runs automatically or is blocked. It is configured once at startup via a discriminated union:
@@ -330,8 +312,6 @@ export function createApproval(config: ApprovalConfig) {
 **Delegated mode** (used for executor subagents) only auto-approves commands that exactly match or prefix-match an entry in the `trust` list. Shell operators (`;&|<>\`$\n\r`) in the command string cause it to be rejected even if the prefix matches — preventing injection via chaining (e.g. `bun test && rm -rf .`).
 
 The return value is `true` (needs approval = blocked) or `false` (runs). A blocked command never reaches the sandbox's `exec`.
-
----
 
 ## Tool Registry — `src/registry.ts`
 
@@ -361,8 +341,6 @@ export function wrapTool<Input, Output>(
 ```
 
 The base tool reference is unchanged — other consumers continue using the original. Wrapping creates a new tool object. Use it for logging, telemetry, path normalisation, or output transformation.
-
----
 
 ## System Prompt — `src/system.ts`
 
@@ -396,8 +374,6 @@ The prompt has eight sections:
 **Tool preferences appear in both tool descriptions and the Agency section.** The redundancy is intentional — cross-layer repetition reinforces routing without either layer being a single point of failure.
 
 **Verification is scoped, not aspirational.** The prompt says "run these gates and report what passed and what didn't." The model is required to distinguish failures it caused from pre-existing ones, and must not claim "tests pass" without running them.
-
----
 
 ## Context Management — `src/cache.ts`
 
@@ -439,8 +415,6 @@ Marks two positions with cache-control headers: the **first message** (system pr
 
 **Order matters:** prune first, then mark cache positions. Marking before pruning would misidentify the stable boundary.
 
----
-
 ## Verification Gates — `src/verification.ts`
 
 `discoverGates(sandbox)` reads `package.json` from the sandbox and returns an ordered list of verification commands for the agent to run after making changes:
@@ -453,8 +427,6 @@ Marks two positions with cache-control headers: the **first message** (system pr
 Bun detection checks the `packageManager` field and looks for `bun.lock` or `bun.lockb` lockfiles, falling back to npm if neither is found.
 
 The discovered commands are injected into the system prompt under `# Verification`. If no commands are discovered (no `package.json`, unrecognised project), the prompt notes this explicitly rather than silently omitting the section.
-
----
 
 ## Skills — `src/skills.ts`
 
@@ -484,8 +456,6 @@ Two directories are scanned by default:
 
 The system prompt lists only names and one-line descriptions (minimal token cost). Full content is loaded lazily via `loadSkill` when the task matches. This avoids spending context budget on skills unrelated to the current task.
 
----
-
 ## Project Structure
 
 ```
@@ -506,8 +476,9 @@ Mu/
 │   ├── skills.ts                 # discoverSkills — skill file loader
 │   ├── system.ts                 # buildSystemPrompt — agent instruction builder
 │   ├── tools.ts                  # All tool factory functions
-│   ├── verification.ts           # discoverGates — auto-detect verification commands
-│   │
+│   └── verification.ts           # discoverGates — auto-detect verification commands
+│
+├── tests/
 │   ├── approval.test.ts
 │   ├── cache.test.ts
 │   ├── registry.test.ts
@@ -522,19 +493,15 @@ Mu/
         └── SKILL.md              # Example skill
 ```
 
----
-
 ## Running Tests
 
 ```bash
-bun test                        # run all tests
-bun test src/tools.test.ts      # run a specific file
-bun run typecheck               # TypeScript type-check only
+bun test                           # run all tests
+bun test tests/tools.test.ts       # run a specific file
+bun run typecheck                  # TypeScript type-check only
 ```
 
-The just-bash integration test (`sandbox-just-bash.test.ts`) spawns a Node subprocess and requires Node 20.18.1+. It auto-skips on older versions. Set `MU_TEST_NODE` to override the Node binary used.
-
----
+The just-bash integration test (`tests/sandbox-just-bash.test.ts`) spawns a Node subprocess and requires Node 20.18.1+. It auto-skips on older versions. Set `MU_TEST_NODE` to override the Node binary used.
 
 ## Design Decisions
 
@@ -552,4 +519,4 @@ The just-bash integration test (`sandbox-just-bash.test.ts`) spawns a Node subpr
 
 **`exec` never throws.** Every sandbox backend returns `{ stdout, exitCode }` even for failed commands. Tools handle non-zero exit codes explicitly rather than catching exceptions — predictable and test-friendly.
 
-**Explorer uses Flash, Executor uses V4 Pro.** Explorers only read and grep — high volume, low stakes, latency-sensitive. Executors make decisions and run commands — worth the slower, more capable model.
+**Explorer uses GPT-5-mini, Executor uses GPT-5.5.** Explorers only read and grep — high volume, low stakes, latency-sensitive. Executors make decisions and run commands — worth the slower, more capable model.
